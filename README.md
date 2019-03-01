@@ -4,21 +4,21 @@
 
 This repository includes the data and code necessary for reproducing the analysis in our malaria infant study manuscript.
 
-## Analysis Summary
+## Data File Overview
 
-The included data file, `MIS_master_data_sheet_long.csv`, is a 119x30 data frame which has the following column names, where each row represents one individual at either acute infection or 4 weeks post-treatment.
+The included data file, `MIS_master_data_sheet_long.csv`, is a 119x30 data frame which has the following column names, where each row represents one individual at either acute infection or 4 weeks post-treatment. A companion file, `MIS_master_data_sheet_wide.csv`, is also included for convenience.
 
-The covariates for each subject are given in the first six columns.
+The covariates for each subject are given in the first six columns:
 
 - `Subject_ID` (factor): The unique subject ID.
 
 - `Sample` (factor): The unique subject ID and visit number (1 or 2).
 
-- `age.years` (numeric): The age of subjects, which ranges from <1 year to 70 years.
+- `age.years` (numeric): The age of each subject, which ranges from <1 year to 70 years.
 
-- `Age` (factor): The age group, `A` (adult) or `I` (infant).
+- `Age` (factor): The age group of each subject, `A` (adult) or `I` (infant).
 
-- `Sex` (factor): `F` (female), `M` (male)
+- `Sex` (factor): The sex of each subject, `F` (female) or `M` (male).
 
 - `Visit` (integer): The visit number, `1` for acute infection (first visit), or `2` for post-treatment (second visit).
 
