@@ -1,0 +1,655 @@
+---
+title: "Malaria Infant Paper Analysis"
+author: "Paul L. Maurizio"
+date: "3/2/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+
+```{r, message=FALSE}
+library(ggplot2)
+library(ggfortify)
+library(coin)
+library(xtable)
+library(pscl) # zero inflated poisson regression
+library(MASS) # multinomial ordinal probit regression / proportional odds logistic regression / Box-Cox
+library(ordinal) # cumulative link mixed model
+library(nparLD) # nonparametric rank-based statistics for longitudinal data
+library(lmerTest)
+library(psych)
+library(coin)
+```
+
+## Load Data
+
+```{r}
+dat <- read.csv("../data/MIS_master_data_sheet_wide.csv")
+dat_long <- read.csv("../data/MIS_master_data_sheet_long.csv")
+```
+
+## PCA on raw phenotypes
+
+To explore the data, we use PCA on a subset of the phenotypes that were collected from the most individuals.
+
+```{r}
+select <- c('GMCSF','IFNg','IL10','IL12p40','IL12p70','IL6','TNFa','Nitrate.570','Hb')
+dat_sub <- dat_long[,select]
+dat_ref <- dat_long[complete.cases(dat_sub),]
+dat_sub <- dat_sub[complete.cases(dat_sub),]
+dat_ref$Visit <- as.factor(dat_ref$Visit)
+dat_ref$AgeVisit <- as.factor(paste(dat_ref$Age, dat_ref$Visit, sep="_"))
+pr <- princomp(dat_sub, cor=TRUE, scores=TRUE)
+summary(pr)
+plot(pr, type="lines")
+
+autoplot(pr, data = dat_ref, colour = 'AgeVisit', x=1, y=2, loadings=TRUE, loadings.label=TRUE)
+autoplot(pr, data = dat_ref, colour = 'AgeVisit', x=2, y=3, loadings=TRUE, loadings.label=TRUE)
+```
+
+## 1. Parasite Load
+
+Model the effects of age, considering sex, on parasite levels on V1, using the Wilcoxon test, among detectable samples only.
+
+```{r}
+dat.sub <- subset(dat, parasites>0)
+fit1 <- wilcox_test(dat.sub$parasites ~ dat.sub$age | dat.sub$sex, distribution="exact"); pvalue(fit1)
+```
+
+Model the effects of age and sex on parasite levels on V1, using zero-inflated Poisson regression.
+
+We use the zero-inflated Poisson (ZIP) model (log link), with the binomial distribution to model the binary outcome of 0-inflation or not (probit link) (Zeileis 2008).
+
+```{r}
+fit1 <- zeroinfl(round(parasites) ~ age * sex , data = dat, dist="poisson", link="probit")
+summary(fit1)
+```
+
+Model the effects of age on parasite levels on V2, using zero-inflated Poisson regression.
+
+```{r}
+fit1 <- zeroinfl(round(parasites.V2) ~ age, data = dat, dist="poisson", link="probit")
+summary(fit1)
+```
+
+## 2. Gametocytes
+
+Check the correlation of the Pfs phenotypes.
+
+```{r}
+p <- corr.test(log(dat[,c("pfs16", "pfs25", "pfs230")]))$p; p
+```
+
+Model the effects of age and sex on pfs16, pfs25, and pfs230 levels on V1 using the Wilcoxon test
+
+```{r}
+fit1 <- wilcox_test(dat$pfs16 ~ dat$age | dat$sex, distribution="exact"); pvalue(fit1)
+fit2 <- wilcox_test(dat$pfs25 ~ dat$age | dat$sex, distribution="exact"); pvalue(fit2)
+fit3 <- wilcox_test(dat$pfs230 ~ dat$age | dat$sex, distribution="exact"); pvalue(fit3)
+median(subset(dat,age=="A")$pfs25, na.rm=TRUE); median(subset(dat,age=="I")$pfs25, na.rm=TRUE);
+```
+
+Check whether the results are the same under distributional assumptions, using lm()
+
+```{r}
+fit1 <- lm(log(dat$pfs16) ~ age*sex, data=dat); anova(fit1)
+fit2 <- lm(log(dat$pfs25) ~ age*sex, data=dat); anova(fit2)
+fit3 <- lm(log(dat$pfs230) ~ age*sex, data=dat); anova(fit3)
+```
+
+## 3. Antimalarial antibody
+
+Model the effects of age and sex on antibody test results at V1 using multinomial ordinal probit / logistic regression
+
+```{r}
+dat.sub <- subset(dat, !is.na(malaria.Ab.result))
+levels(dat.sub$malaria.Ab.result) <- c("neg", "grey", "pos")
+with(dat.sub, table(malaria.Ab.result, sex, age))
+fit1 <- polr(malaria.Ab.result ~ age*sex, data=dat.sub, method="logistic")
+fit2 <- polr(malaria.Ab.result ~ age + sex, data=dat.sub, method="logistic")
+fit3 <- polr(malaria.Ab.result ~ sex, data=dat.sub, method="logistic")
+fit4 <- polr(malaria.Ab.result ~ 1, data=dat.sub, method="logistic")
+anova(fit4,fit3,fit2,fit1)
+```
+
+Model the effects of age and sex on antibody test results at V2 using multinomial probit / logistic regression.
+
+```{r}
+dat.sub <- subset(dat, !is.na(malaria.Ab.result.V2))
+levels(dat.sub$malaria.Ab.result.V2) <- c("neg", "grey", "pos")
+with(dat.sub, table(malaria.Ab.result.V2, sex, age))
+fit1 <- polr(malaria.Ab.result.V2 ~ age*sex, data=dat.sub, method="logistic")
+fit2 <- polr(malaria.Ab.result.V2 ~ age + sex, data=dat.sub, method="logistic")
+fit3 <- polr(malaria.Ab.result.V2 ~ sex, data=dat.sub, method="logistic")
+fit4 <- polr(malaria.Ab.result.V2 ~ 1, data=dat.sub, method="logistic")
+anova(fit4,fit3,fit2,fit1)
+```
+
+Model the effects of age, sex, and visit, together, using a cumulative link mixed model (CLMM)/ordinal probit regression.
+
+```{r}
+dat.sub <- subset(dat_long, !is.na(malaria.Ab.result))
+levels(dat.sub$malaria.Ab.result) <- c("neg", "grey", "pos")
+with(dat.sub, table(malaria.Ab.result, Sex, Age, Visit))
+
+fit1 <- clmm(malaria.Ab.result ~ Age*Sex*Visit + (1|Subject_ID), data=dat.sub, Hess=TRUE, link="probit",
+              nAGQ=10)
+summary(fit1)
+```
+
+## 4. Plasma cytokines
+
+Model the effects of age, sex, and visit on plasma cytokine levels using nparLD (nonparametric).
+
+```{r, results="hide"}
+data <- dat_long
+host.secreted <- c('TNFa', 'IFNg', 'IL6', 'IL12p40', 'IL12p70', 'IL10',
+                   'GMCSF', 'Hb', 'Nitrate.570')
+
+fits <- NULL
+fit.df <- as.data.frame(matrix(data=NA, nrow=length(host.secreted),ncol=7))
+colnames(fit.df) <- c("Age", "Sex", "Visit", "Age:Sex", "Age:Visit", "Sex:Visit", "Age:Sex:Visit")
+fit.df.wholeplot <- as.data.frame(matrix(data=NA, nrow=length(host.secreted),ncol=3))
+colnames(fit.df.wholeplot) <- c("Age", "Sex", "Age:Sex")
+
+for(i in 1:length(host.secreted)){
+  phen <- host.secreted[i]
+  tempdata <- droplevels(subset(data, !is.na(data[phen])))
+  complete.subjects <- names(summary(data$Subject_ID))[summary(data$Subject_ID)==2]
+  tempdata <- droplevels(subset(data, Subject_ID %in% complete.subjects))
+  y <- tempdata[,phen]
+  
+  time <- tempdata$Visit
+  group1 <- tempdata$Age
+  group2 <- tempdata$Sex
+  subject <- tempdata$Subject_ID
+  time.name <- "Visit"
+  group1.name <- "Age"
+  group2.name <- "Sex"
+  fit <-  f2.ld.f1(y=y, time=time, group1=group1, group2=group2,
+                   subject=subject, time.name=time.name, 
+                   group1.name=group1.name,
+                   group2.name=group2.name, plot.RTE=FALSE)
+  fits[[i]] <- fit
+  fit.df[i,] <- fit$ANOVA.test$`p-value`
+  fit.df.wholeplot[i,] <- fit$ANOVA.test.mod.Box$`p-value`
+}
+
+cat(paste0(phen, ": \n")); #print(fit$Wald.test); 
+rownames(fit.df) <- rownames(fit.df.wholeplot) <- host.secreted
+print(fit.df)
+xtable(format(fit.df, scientific = TRUE, digits=4))
+print(fit.df.wholeplot)
+```
+
+Plot the p-values, colored by significance thresholds
+
+```{r}
+par(oma=c(0.1,3,0.1,0.1), mar=c(5,3,0.5,0.5))
+plot(1~1, xlim=c(0.5,7.5), ylim=rev(c(1,length(host.secreted)+1)), col="white", ylab="", xlab="",axes=FALSE)
+for(i in 1:7){
+  for(j in 1:length(host.secreted)){
+    if(fit.df[j,i] < 0.05){
+      points(x=i,y=j, col=adjustcolor("darkblue", alpha.f=0.15), pch=15, cex=3)
+    }
+    if(fit.df[j,i] < 0.01){
+      points(x=i,y=j, col=adjustcolor("darkblue", alpha.f=0.45), pch=15, cex=3)
+    }
+    if(fit.df[j,i] < 0.001){
+      points(x=i,y=j, col="darkblue", pch=15, cex=3)
+    }
+  }
+}
+new.rownames <- c(expression(paste("TNF-",alpha)), expression(paste("IFN-", gamma)), "IL-6", "IL-12 p40", 
+                  "IL-12 p70", "IL-10", "GM-CSF", "hemoglobin", "nitric oxide")
+axis(side=2,at=c(1:length(host.secreted)),labels=new.rownames, las=2)
+text(seq(1, 7, by=1)-0.1, par("usr")[3] + 0.5, labels = colnames(fit.df), 
+     srt = 45, pos = 1, offset=1.5, xpd = TRUE)
+axis(side=1, at=c(1:7), labels=rep("",7), las=1)
+```
+
+## 5. Cell composition phenotypes
+
+Model the effects of age, sex, and visit on cellular phenotypes using nparLD (nonparametric).
+
+```{r, results="hide"}
+data <- dat_long
+host.cellular <- c('CD33.live', 'mDC.live', 'monocytes.live', 'inflam.CD163', 
+                   'patrol.CD163', 'trad.CD163', 'low.traditional')
+fits <- NULL
+fit.df <- as.data.frame(matrix(data=NA, nrow=length(host.cellular),ncol=7))
+colnames(fit.df) <- c("Age", "Sex", "Visit", "Age:Sex", "Age:Visit", "Sex:Visit", "Age:Sex:Visit")
+fit.df.wholeplot <- as.data.frame(matrix(data=NA, nrow=length(host.cellular),ncol=3))
+colnames(fit.df.wholeplot) <- c("Age", "Sex", "Age:Sex")
+
+for(i in 1:length(host.cellular)){
+  phen <- host.cellular[i]
+  tempdata <- droplevels(subset(data, !is.na(data[phen])))
+  complete.subjects <- names(summary(data$Subject_ID))[summary(data$Subject_ID)==2]
+  tempdata <- droplevels(subset(data, Subject_ID %in% complete.subjects))
+  y <- tempdata[,phen]
+  
+  time <- tempdata$Visit
+  group1 <- tempdata$Age
+  group2 <- tempdata$Sex
+  subject <- tempdata$Subject_ID
+  time.name <- "Visit"
+  group1.name <- "Age"
+  group2.name <- "Sex"
+  fit <-  f2.ld.f1(y=y, time=time, group1=group1, group2=group2,
+                   subject=subject, time.name=time.name, 
+                   group1.name=group1.name,
+                   group2.name=group2.name, plot.RTE=FALSE)
+  fits[[i]] <- fit
+  fit.df[i,] <- fit$ANOVA.test$`p-value`
+  fit.df.wholeplot[i,] <- fit$ANOVA.test.mod.Box$`p-value`
+}
+
+cat(paste0(phen, ": \n")); #print(fit$Wald.test); 
+rownames(fit.df) <- rownames(fit.df.wholeplot) <- host.cellular
+```
+
+```{r}
+xtable(format(fit.df, scientific = TRUE, digits=4))
+print(fit.df.wholeplot)
+```
+
+Plot the p-values (colored by significance thresholds)
+
+```{r}
+par(oma=c(0.1,0.1,0.1,0.1), mar=c(5,13,0.5,0.5))
+plot(1~1, xlim=c(0.5,7.5), ylim=rev(c(1,8)), col="white", ylab="", xlab="",axes=FALSE)
+for(i in 1:7){
+  for(j in 1:7){
+    if(fit.df[j,i] < 0.05){
+      points(x=i,y=j, col=adjustcolor("darkblue", alpha.f=0.15), pch=15, cex=3)
+    }
+    if(fit.df[j,i] < 0.01){
+      points(x=i,y=j, col=adjustcolor("darkblue", alpha.f=0.45), pch=15, cex=3)
+    }
+    if(fit.df[j,i] < 0.001){
+      points(x=i,y=j, col="darkblue", pch=15, cex=3)
+    }
+  }
+}
+new.rownames <- c("CD33+ (% of live)",
+                  "mDC (% of live)",
+                  "monocytes (% of live)",
+                  "infl. mono. (% of CD163+)",
+                  "patrol. mono. (% of CD163+)",
+                  "trad. mono. (% of CD163+)",
+                  "CD14^low (% of trad. mono.)")
+axis(side=2,at=c(1:7),labels=new.rownames, las=2)
+text(seq(1, 7, by=1)-0.1, par("usr")[3], labels = colnames(fit.df), 
+     srt = 45, pos = 1, offset=1.5, xpd = TRUE)
+axis(side=1, at=c(1:7), labels=rep("",7), las=1)
+```
+
+In order to use a parametric (linear mixed model) with our data (lmer) we need to deal with heteroskedastic residuals. We can find a power transform that helps normalize them using Box-Cox analysis (Box and Cox, 1964).
+
+```{r, echo=FALSE}
+bcphens <- c("TNFa", "IFNg", "IL6", "IL12p40", "IL12p70",
+             "IL10", "GMCSF", "Hb", "Nitrate.570")
+
+boxcoxlist <- list()
+
+par(mfrow=c(3,3))
+for(i in 1:length(bcphens)){
+  thisdat <- subset(dat_long, select=c("Age", "Sex", "Visit", bcphens[i]))
+  thisdat <- thisdat[complete.cases(thisdat),]
+  thisdat$Visit <- as.factor(thisdat$Visit)
+  thismodel <- paste0(bcphens[i], " ~ Visit*Sex*Age")
+  fit1 <- lm(thismodel, data=thisdat, na.action=na.omit)
+  boxcoxlist[[i]] <- boxcox(fit1, data = thisdat, lambda = seq(-1,2,0.01), plotit = TRUE, 
+                            xlab=bcphens[i]); abline(v=0, col="red"); abline(v=1, col="green")
+}
+
+par(mfrow=c(3,3))
+for(i in 1:length(bcphens)){
+  thisdat <- subset(dat_long, select=c("Age", "Sex", "Visit", bcphens[i]))
+  thisdat <- thisdat[complete.cases(thisdat),]
+  thisdat$Visit <- as.factor(thisdat$Visit)
+  thismodel <- paste0(bcphens[i], " ~ Visit*Sex*Age")
+  fit1 <- lm(thismodel, data=thisdat, na.action=na.omit)
+  try(plot(fit1, which=2, main=bcphens[i]))
+}
+
+```
+
+Based on the Box-Cox analysis, choose a sensible transform proximal to the lambda value (+/- sqrt, +/- 1/3 root, log, no transform, etc.): Use log (natural) for lambda ~ 0, and no transform for lambda ~ 1.
+
+```{r, echo=FALSE}
+bc.transform <- function(y, lambda){(y^lambda - 1)/lambda}
+
+dat_long$GMCSF.bc <- bc.transform(dat_long$GMCSF, lambda=-1/3)
+dat_long$IFNg.bc <- bc.transform(dat_long$IFNg, lambda=-0.5)
+dat_long$IL10.bc <- bc.transform(dat_long$IL10, lambda=-1/3)
+dat_long$IL12p40.bc <- bc.transform(dat_long$IL12p40, lambda=-1/3)
+dat_long$IL12p70.bc <- log(dat_long$IL12p70)
+dat_long$IL6.bc <- bc.transform(dat_long$IL6, lambda=-0.5)
+dat_long$TNFa.bc <- log(dat_long$TNFa)
+dat_long$Hb.bc <- dat_long$Hb
+dat_long$Nitrate.570.bc <- log(dat_long$Nitrate.570)
+
+bcphens.t <- paste(bcphens, "bc", sep=".")
+par(mfrow=c(3,3))
+for(i in 1:length(bcphens.t)){
+  thisdat <- subset(dat_long, select=c("Age", "Sex", "Visit", bcphens.t[i]))
+  thisdat <- thisdat[complete.cases(thisdat),]
+  thisdat$Visit <- as.factor(thisdat$Visit)
+  thismodel <- paste0(bcphens.t[i], " ~ Visit*Sex*Age")
+  fit1 <- lm(thismodel, data=thisdat, na.action=na.omit)
+  boxcoxlist[[i]] <- boxcox(fit1, data = thisdat, lambda = seq(-1,2,0.01), plotit = TRUE, 
+                            xlab=bcphens.t[i]); abline(v=0, col="red"); abline(v=1, col="green")
+}
+
+bcphens.t <- paste(bcphens, "bc", sep=".")
+par(mfrow=c(3,3))
+for(i in 1:length(bcphens.t)){
+  thisdat <- subset(dat_long, select=c("Age", "Sex", "Visit", bcphens.t[i]))
+  thisdat <- thisdat[complete.cases(thisdat),]
+  thisdat$Visit <- as.factor(thisdat$Visit)
+  thismodel <- paste0(bcphens.t[i], " ~ Visit*Sex*Age")
+  fit1 <- lm(thismodel, data=thisdat, na.action=na.omit)
+  try(plot(fit1, which=2, main=bcphens.t[i]))
+}
+```
+
+Try `lmer`:
+
+```{r, results="hide", message=FALSE, warning=FALSE}
+dat_long$Visit <- dat_long$Visit - 1 
+fits1 <- fits2 <- summaries <- list()
+row_names <- c("(Intercept)", "AgeI", "SexM", "Visit", "AgeI:SexM",
+               "AgeI:Visit", "SexM:Visit", "AgeI:SexM:Visit")
+summary_table <- data.frame(row.names = row_names)
+#for(i in c(1:10,18:20)){
+for(i in 1:length(bcphens.t)){
+  # Subject-level random intercepts will absorb all the age-specific variation, so we leave them out
+  # and instead estimate global age-specific effects, and only model the within-subject (visit) slopes
+  expr1 <- paste0(bcphens.t[i] , "~ Sex*Visit + (0+Visit|Subject_ID)")
+  expr2 <- paste0(bcphens.t[i], "~ Age*Sex*Visit + (0+Visit|Subject_ID)")
+  fit1 <- lmer(expr1, data=dat_long, na.action=na.exclude)
+  fit2 <- lmer(expr2, data=dat_long, na.action=na.exclude)
+  fits1[[i]] <- fit1
+  names(fits1)[i] <- bcphens.t[i]
+  fits2[[i]] <- fit2
+  names(fits2)[i] <- bcphens.t[i]
+  cat("\n##-------------------------")
+  cat(paste0(as.character(bcphens.t[i]), " : "))
+  cat("-------------------------##\n")
+  cat("\n##------------")
+  cat("SUMMARY")
+  cat("--------------##\n")
+  print(summary(fit2))
+  cat("\n##------------")
+  cat("ANOVA")
+  cat("--------------##\n")
+  print(anova(fit2,fit1))
+  cat("\n##------------")
+  cat("RANOVA")
+  cat("--------------##\n")
+  print(ranova(fit2))
+  summaries[[i]] <- as.data.frame(summary(fit2)[[10]][,5])
+  summary_table <- cbind(summary_table, p=summaries[[i]])
+}
+
+colnames(summary_table) <- bcphens
+summary_table <- t(summary_table)
+xtable(format(summary_table, scientific = TRUE, digits=4))
+dat_long$Visit <- dat_long$Visit + 1
+```
+
+## 6. Cytokine ratios
+
+Model the effects of age, sex, and visit on blood analyte ratios using nparLD; we omit IL12p40, NO and Hb, resulting in 15 proportions tested.
+
+```{r, results="hide", message=FALSE, warning=FALSE}
+ratiotest <- c('TNFa','IFNg','IL6','IL12p70','IL10','GMCSF')
+dat.ratios <- dat_long[,c("Subject_ID", "Sample", "age.years", "Age", "Sex", "Visit")]
+ratio.combos <- t(combn(ratiotest,2))
+ratio.colnames <- paste(ratio.combos[,1], ratio.combos[,2], sep="/")
+for(i in 1:length(ratio.colnames)){
+  dat.ratios[,ratio.colnames[i]] <- dat_long[,ratio.combos[i,1]]/dat_long[,ratio.combos[i,2]]
+}
+
+fits <- NULL
+fit.df <- as.data.frame(matrix(data=NA, nrow=length(ratio.colnames),ncol=7))
+colnames(fit.df) <- c("Age", "Sex", "Visit", "Age:Sex", "Age:Visit", "Sex:Visit", "Age:Sex:Visit")
+fit.df.wholeplot <- as.data.frame(matrix(data=NA, nrow=length(ratio.colnames),ncol=3))
+colnames(fit.df.wholeplot) <- c("Age", "Sex", "Age:Sex")
+
+for(i in 1:length(ratio.colnames)){
+  phen <- ratio.colnames[i]
+  #tempdata <- droplevels(subset(dat.ratios, !is.na(data[phen])))
+  complete.subjects <- names(summary(data$Subject_ID))[summary(data$Subject_ID)==2]
+  tempdata <- droplevels(subset(dat.ratios, Subject_ID %in% complete.subjects))
+  y <- tempdata[,phen]
+  
+  time <- tempdata$Visit
+  group1 <- tempdata$Age
+  group2 <- tempdata$Sex
+  subject <- tempdata$Subject_ID
+  time.name <- "Visit"
+  group1.name <- "Age"
+  group2.name <- "Sex"
+  fit <-  f2.ld.f1(y=y, time=time, group1=group1, group2=group2,
+                   subject=subject, time.name=time.name, 
+                   group1.name=group1.name,
+                   group2.name=group2.name, plot.RTE=FALSE)
+  fits[[i]] <- fit
+  fit.df[i,] <- fit$ANOVA.test$`p-value`
+  fit.df.wholeplot[i,] <- fit$ANOVA.test.mod.Box$`p-value`
+}
+
+cat(paste0(phen, ": \n")); #print(fit$Wald.test); 
+rownames(fit.df) <- rownames(fit.df.wholeplot) <- ratio.colnames
+```
+
+```{r}
+xtable(format(fit.df, scientific = TRUE, digits=4))
+print(fit.df)
+print(fit.df.wholeplot)
+```
+
+Plot the p-values in a grid.
+
+```{r, echo=FALSE}
+par(oma=c(0.1,0.1,0.1,0.1), mar=c(5,9,0.5,0.5))
+plot(1~1, xlim=c(0.5,7.5), ylim=rev(c(1,nrow(fit.df))), col="white", ylab="", xlab="",axes=FALSE)
+for(i in 1:7){
+  for(j in 1:nrow(fit.df)){
+    if(fit.df[j,i] < 0.05){
+      points(x=i,y=j, col=adjustcolor("darkblue", alpha.f=0.15), pch=15, cex=3)
+    }
+    if(fit.df[j,i] < 0.01){
+      points(x=i,y=j, col=adjustcolor("darkblue", alpha.f=0.45), pch=15, cex=3)
+    }
+    if(fit.df[j,i] < 0.001){
+      points(x=i,y=j, col="darkblue", pch=15, cex=3)
+    }
+  }
+}
+axis(side=2,at=c(1:nrow(fit.df)),labels=rownames(fit.df), las=2)
+text(seq(1, 7, by=1)-0.1, par("usr")[3], labels = colnames(fit.df), 
+     srt = 45, pos = 1, offset=1.5, xpd = TRUE)
+axis(side=1, at=c(1:7), labels=rep("",7), las=1)
+```
+
+## 7. Treatment failure
+
+```{r, echo=FALSE}
+dat$color.by.age <- ifelse(dat$age=="A", rgb(0,0,0,1,alpha=0.25), rgb(1,0,0,1,alpha=0.25))
+dat$color.by.age1 <- ifelse(dat$age=="A", rgb(0,0,0,1), rgb(1,0,0,1))
+dat$shape.by.sex <- ifelse(dat$sex=="M", 24, 21)
+dat$shape.by.sex1 <- ifelse(dat$sex=="M", 17, 16)
+dat$treatfail <- ifelse(dat$parasites.V2>10,1,0)
+
+phens.sub <- c("parasites", "Hb", "Nitrate.570", "TNFa", "IFNg", "IL6", "IL12p40", "IL12p70",
+                   "IL10", "GMCSF")
+new.rownames <- c("parasites", "hemoglobin", "nitric oxide", expression(paste("TNF-",alpha)), expression(paste("IFN-", gamma)), "IL-6", "IL-12 p40", "IL-12 p70",
+                  "IL-10", "GM-CSF")
+
+par(mfrow=c(4,3), mar=c(3,3,2.5,1))
+i <- 1
+phen.v1 <- phens.sub[i]
+phen.v2 <- paste0(phens.sub[i],".V2")
+expr <- substitute(log(j+1,base=10) ~ log(i+1,base=10), list(i = as.name(phen.v1), j=as.name(phen.v2)))
+plot(eval(expr), data=dat, main=new.rownames[i], xlab="", ylab="", pch=shape.by.sex1, col=color.by.age, cex=1.5,
+     ylim=range(log(dat[,phen.v1]+1, base=10), na.rm=TRUE), las=1)
+points(eval(expr), data=subset(dat, treatfail==1), main=new.rownames[i], xlab="", ylab="", pch=shape.by.sex, bg=color.by.age1, col="black", cex=1.5,
+       ylim=range(log(dat[,phen.v1]+1, base=10), na.rm=TRUE))
+abline(a=0,b=1)
+for(i in 2:(length(phens.sub))) {
+  phen.v1 <- phens.sub[i]
+  phen.v2 <- paste0(phens.sub[i],".V2")
+  expr <- substitute(log(j,base=10) ~ log(i,base=10), list(i = as.name(phen.v1), j=as.name(phen.v2)))
+  plot(eval(expr), data=dat, main=new.rownames[i], xlab="", ylab="", pch=shape.by.sex1, col=color.by.age, cex=1.5, las=1)
+  points(eval(expr), data=subset(dat, treatfail==1), main=new.rownames[i], xlab="", ylab="", pch=shape.by.sex, bg=color.by.age1, col="black", cex=1.5)
+  abline(a=0,b=1)
+}
+```
+
+## 8. Continuous age effects within group
+
+Model the phenotypes vs. age for adults and infants at V1.
+
+```{r, results="hide"}
+phens <- c('GMCSF', 'IFNg', 'IL10', 'IL12p40', 'IL12p70', 
+           'IL6', 'TNFa', 'Nitrate.570',  
+           'pfs25', 'pfs16', 'pfs230', 'Hb', 'malaria.Ab', 'parasites')
+
+phens <- phens[!(phens=="malaria.Ab")]
+dat.I <- subset(dat, age="I")
+dat.A <- subset(dat, age="A")
+
+cat("##-----------------##\n")
+cat("INFANTS \n")
+cat("##-----------------##\n")
+for(i in 1:length(phens)){
+  cat("##-----------------")
+  cat(phens[i])
+  cat("-----------------## \n")
+  form <- paste0(phens[i], "~ age.years*sex")
+  try(fit1 <- lm(form, data=dat.I))
+  try(print(summary(fit1)))
+  fit1 <- NULL
+}
+
+for(i in 1:length(phens)){
+  cat("##-----------------")
+  cat(phens[i])
+  cat("-----------------## \n")
+  form <- paste0(phens[i], "~ age.years*sex")
+  try(fit1 <- lm(form, data=dat.A))
+  try(print(summary(fit1)))
+  fit1 <- NULL
+}
+```
+
+Model the phenotypes vs. age for adults and infants at V2.
+
+```{r, results="hide"}
+phens.V2 <- paste0(phens, ".V2")
+phens.V2 <- phens.V2[!(phens.V2 %in% c("pfs25.V2", "pfs16.V2", "pfs230.V2", "malaria.Ab.V2"))]
+
+cat("##-----------------##\n")
+cat("INFANTS \n")
+cat("##-----------------##\n")
+for(i in 1:length(phens.V2)){
+  cat("##-----------------")
+  cat(phens.V2[i])
+  cat("-----------------## \n")
+  form <- paste0(phens.V2[i], "~ age.years*sex")
+  try(fit1 <- lm(form, data=dat.I))
+  try(print(summary(fit1)))
+  fit1 <- NULL
+}
+
+cat("##-----------------##\n")
+cat("ADULTS \n")
+cat("##-----------------##\n")
+for(i in 1:length(phens.V2)){
+  cat("##-----------------")
+  cat(phens.V2[i])
+  cat("-----------------## \n")
+  form <- paste0(phens.V2[i], "~ age.years*sex")
+  try(fit1 <- lm(form, data=dat.A))
+  try(print(summary(fit1)))
+  fit1 <- NULL
+}
+```
+
+Model the log2FC of phenotypes vs. age for adults and infants.
+
+```{r, results="hide"}
+dat$TNFa.FC <- log2(dat$TNFa.V2) - log2(dat$TNFa)
+dat$IFNg.FC <- log2(dat$IFNg.V2) - log2(dat$IFNg)
+dat$IL6.FC <- log2(dat$IL6.V2) - log2(dat$IL6)
+dat$IL12p40.FC <- log2(dat$IL12p40.V2) - log2(dat$IL12p40)
+dat$IL12p70.FC <- log2(dat$IL12p70.V2) - log2(dat$IL12p70)
+dat$IL10.FC <- log2(dat$IL10.V2) - log2(dat$IL10)
+dat$GMCSF.FC <- log2(dat$GMCSF.V2) - log2(dat$GMCSF)
+dat$Hb.FC <- log2(dat$Hb.V2) - log2(dat$Hb)
+dat$Nitrate.570.FC <- log2(dat$Nitrate.570.V2) - log2(dat$Nitrate.570)
+phens <- c("TNFa", "IFNg", "IL6", "IL12p40", "IL12p70", "IL10", "GMCSF", "Hb", "Nitrate.570")
+phens.FC <- paste0(phens, ".FC")
+dat.I <- subset(dat, age="I")
+dat.A <- subset(dat, age="A")
+
+cat("##-----------------##\n")
+cat("INFANTS \n")
+cat("##-----------------##\n")
+for(i in 1:length(phens.FC)){
+  cat("##-----------------")
+  cat(phens.FC[i])
+  cat("-----------------## \n")
+  form <- paste0(phens.FC[i], "~ age.years*sex")
+  try(fit1 <- lm(form, data=dat.I))
+  try(print(summary(fit1)))
+  fit1 <- NULL
+}
+
+cat("##-----------------##\n")
+cat("ADULTS \n")
+cat("##-----------------##\n")
+for(i in 1:length(phens.FC)){
+  cat("##-----------------")
+  cat(phens.FC[i])
+  cat("-----------------## \n")
+  form <- paste0(phens.FC[i], "~ age.years*sex")
+  try(fit1 <- lm(form, data=dat.A))
+  try(print(summary(fit1)))
+  fit1 <- NULL
+}
+```
+
+Plot the phenotypes vs. age for adults and infants - V1.
+
+```{r, message=FALSE, warning=FALSE}
+dat.I <- droplevels(subset(dat, age=="I"))
+dat.A <- droplevels(subset(dat, age=="A"))
+
+p1 <- ggplot(dat.I, aes_string(x="age.years", y="TNFa", colour="sex", shape="sex"))
+p2 <- p1 + geom_point(aes(pch=sex), size=3) + geom_smooth(method=lm) + theme_classic() + geom_hline(yintercept=0, color = "darkgrey") + ylab(expression(paste("TNF-",alpha," (pg/mL)")))
+plot(p2)
+
+p1 <- ggplot(dat.A, aes_string(x="age.years", y="pfs16", colour="sex", shape="sex"))
+p2 <- p1 + geom_point(aes(pch=sex), size=3) + geom_smooth(method=lm) + ylim(-75,200) + theme_classic() + geom_hline(yintercept=0, color = "darkgrey") + ylab("Pfs16 (gametocytes/uL)")
+plot(p2)
+```
+
+Plot the phenotypes vs. age for adults and infants - V2.
+
+```{r, message=FALSE, warning=FALSE}
+p1 <- ggplot(dat.A, aes_string(x="age.years", y="Nitrate.570.V2", colour="sex", shape="sex"))
+p2 <- p1 + geom_point(aes(pch=sex), size=3) + geom_smooth(method=lm) + theme_classic() + geom_hline(yintercept=0, color = "darkgrey") + ylab("nitric oxide (uM)")
+plot(p2)
+```
+

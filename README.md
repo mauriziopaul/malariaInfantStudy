@@ -4,9 +4,9 @@
 
 This repository includes the data and code necessary for reproducing the analysis in our malaria infant study manuscript.
 
-## Data File Overview
+## Data File
 
-The included data file, `MIS_master_data_sheet_long.csv`, is a 119x30 data frame which has the following column names, where each row represents one individual at either acute infection or 4 weeks post-treatment. A companion file, `MIS_master_data_sheet_wide.csv`, is also included for convenience.
+The data file, `MIS_master_data_sheet_long.csv`, is a 119x30 data frame which has the following column names, where each row represents one individual at either acute infection or 4 weeks post-treatment. A reformatted companion file, `MIS_master_data_sheet_wide.csv`, is also included for convenience.
 
 The covariates for each subject are given in the first six columns:
 
