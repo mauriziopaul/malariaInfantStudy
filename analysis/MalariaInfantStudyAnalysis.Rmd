@@ -516,7 +516,7 @@ text(seq(1, 7, by=1)-0.1, par("usr")[3], labels = colnames(fit.df),
 axis(side=1, at=c(1:7), labels=rep("",7), las=1)
 ```
 
-## Treatment failure, non-compliance, or recrudescence.
+## Recrudescence or reinfection.
 
 ```{r, echo=FALSE}
 dat$color.by.age <- ifelse(dat$age=="A", rgb(0,0,0,1,alpha=0.25), rgb(1,0,0,1,alpha=0.25))
