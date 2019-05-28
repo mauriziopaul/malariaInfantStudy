@@ -16,7 +16,7 @@ The covariates for each subject are given in the first six columns:
 
 - `age.years` (numeric): The age of each subject, which ranges from <1 year to 70 years.
 
-- `Age` (factor): The age group of each subject, `A` (adult) or `I` (infant).
+- `Age` (factor): The age group of each subject, `A` (adults) or `I` (infants and young children).
 
 - `Sex` (factor): The sex of each subject, `F` (female) or `M` (male).
 
@@ -24,27 +24,27 @@ The covariates for each subject are given in the first six columns:
 
 The levels of nine analytes are given in the following columns, in pg/ml:
 
-- `GMCSF` (numeric): granulocyte-macrophage colony-stimulating factor
+- `GMCSF` (numeric): granulocyte-macrophage colony-stimulating factor.
 
-- `IFNg` (numeric): interferon gamma
+- `IFNg` (numeric): interferon gamma.
 
-- `IL10` (numeric): interleukin 10
+- `IL10` (numeric): interleukin 10.
 
-- `IL12p40` (numeric): interleukin 12 p40
+- `IL12p40` (numeric): interleukin 12 p40.
 
-- `IL12p70` (numeric): interleukin 12 p70
+- `IL12p70` (numeric): interleukin 12 p70.
 
-- `sCD40L` (numeric): soluble CD40-ligand 
+- `sCD40L` (numeric): soluble CD40-ligand.
 
-- `IL1b` (numeric): interleukin 1 beta
+- `IL1b` (numeric): interleukin 1 beta.
 
-- `IL6` (numeric): interleukin 6
+- `IL6` (numeric): interleukin 6.
 
-- `TNFa` (numeric): tumor necrosis factor alpha
+- `TNFa` (numeric): tumor necrosis factor alpha.
 
 Additional phenotypes:
 
-- `Nitrate.570` (numeric): Nitric oxide, given in micromolar.
+- `Nitrate.570` (numeric): Nitric oxide metabolite concentration, given in micromolar.
 
 - `malaria.Ab` (numeric): Absorbance values used to determine `malaria.Ab.result`.
 
